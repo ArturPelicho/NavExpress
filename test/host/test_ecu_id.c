@@ -48,6 +48,25 @@ int main(void)
     assert(last_session >= 0 && steps[last_session].req[1] == 0x01);
     for (size_t i = (size_t)last_session + 1; i < n; ++i) assert(steps[i].req[0] != 0x27);
 
+    /* The deeper probe is read-only too: no key, no programming session, no
+     * write/download/routine/reset; ends in the default session. */
+    const ecu_id_step_t *probe;
+    size_t pn = ecu_probe_steps(&probe);
+    assert(pn > 3);
+    int probe_last_session = -1;
+    for (size_t i = 0; i < pn; ++i) {
+        const ecu_id_step_t *s = &probe[i];
+        assert(s->len >= 1 && s->len <= ECU_ID_REQ_MAX);
+        assert(s->engine_off_only);
+        uint8_t svc = s->req[0];
+        assert(svc != 0x2E && svc != 0x34 && svc != 0x36 && svc != 0x37 && svc != 0x31 &&
+               svc != 0x11 && svc != 0x3D);
+        if (svc == 0x27) assert((s->req[1] & 1) == 1);
+        if (svc == 0x10) probe_last_session = (int)i;
+    }
+    assert(probe_last_session >= 0 && probe[probe_last_session].req[1] == 0x01);
+    for (size_t i = (size_t)probe_last_session + 1; i < pn; ++i) assert(probe[i].req[0] != 0x27);
+
     ecu_id_step_t supplier = { ECU_ID_PHYSICAL, false, 3, { 0x22, 0xF1, 0x8A }, "system supplier" };
     const uint8_t bosch[] = { 0x62, 0xF1, 0x8A, 'B', 'O', 'S', 'C', 'H', 0x00 };
     s_count = 0;

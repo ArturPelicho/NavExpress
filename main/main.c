@@ -2203,10 +2203,8 @@ static void ecu_id_line_out(const char *line, void *ctx)
     ble_notify_text("\r");
 }
 
-static void ecu_id_run(void)
+static void ecu_id_run_steps(const ecu_id_step_t *steps, size_t count)
 {
-    const ecu_id_step_t *steps;
-    size_t count = ecu_id_steps(&steps);
     bool engine_running = current_rpm() > 0.0f;
     char line[96];
     snprintf(line, sizeof(line), "ECUID START steps=%u physical=%03X engine=%s", (unsigned)count,
@@ -2236,6 +2234,20 @@ static void ecu_id_run(void)
     snprintf(line, sizeof(line), "ECUID END answered=%u of %u", answered, (unsigned)count);
     ecu_id_line_out(line, NULL);
     ble_notify_text(">");
+}
+
+static void ecu_id_run(void)
+{
+    const ecu_id_step_t *steps;
+    size_t count = ecu_id_steps(&steps);
+    ecu_id_run_steps(steps, count);
+}
+
+static void ecu_probe_run(void)
+{
+    const ecu_id_step_t *steps;
+    size_t count = ecu_probe_steps(&steps);
+    ecu_id_run_steps(steps, count);
 }
 
 static const ble_uuid16_t s_obd_service_uuid = BLE_UUID16_INIT(0xFFF0);
@@ -2462,6 +2474,8 @@ static void process_elm_command(char *command)
         ble_send_text(">");
     } else if (!strcmp(command, "ECU ID") || !strcmp(command, "ECUID")) {
         ecu_id_run();
+    } else if (!strcmp(command, "ECU PROBE") || !strcmp(command, "ECUPROBE")) {
+        ecu_probe_run();
     } else if (!strcmp(command, "DTC")) {
         dtc_report();
     } else if (!strcmp(command, "DTC CLEAR")) {

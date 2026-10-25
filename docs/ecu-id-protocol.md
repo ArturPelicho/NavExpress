@@ -51,6 +51,35 @@ Pelo telemóvel: app de terminal BLE ligada a `OBDII`, enviar `ECU ID`.
 
 Enviar no fio do projeto o ficheiro `ecu_id.log` (ou o texto copiado).
 
+## Segundo passo: ECU PROBE (depois de ECU ID)
+
+Depois de o `ECU ID` mostrar que a ECU fala UDS em 0x7E0, o comando `ECU PROBE`
+vai mais fundo, sempre só com leitura e sem motor:
+
+1. Abre a sessão estendida (`10 03`).
+2. Lê a seed de segurança (`27 01`) **três vezes** seguidas. Se der sempre
+   `56 78`, a seed é fixa dentro da sessão. Corre o comando **outra vez depois
+   de desligar e ligar a chave** para ver se também não muda entre arranques:
+   uma seed fixa quer dizer chave fixa e proteção fraca.
+3. Tenta ler memória com `ReadMemoryByAddress` (`23`) em três formatos de
+   endereço, e pedir um `RequestUpload` (`35`). Ambos são leitura (o upload é a
+   ECU a mandar memória para fora, não a receber). As respostas dizem tudo:
+   - `NEGATIVE 33 securityAccessDenied` = o serviço existe mas precisa da chave;
+   - `NEGATIVE 31 requestOutOfRange` = o serviço está aberto, só o endereço é
+     que está errado (ótimo sinal, dá para procurar o mapa de memória);
+   - `OK` = lê memória sem chave nenhuma (o melhor cenário para um dump);
+   - `NEGATIVE 11 serviceNotSupported` = não tem esse serviço.
+4. Volta à sessão normal (`10 01`).
+
+Nunca envia uma chave, nem entra em programação, nem escreve. Corre assim:
+
+```
+idf.py -p COM9 monitor | tee ecu_probe.log
+```
+
+Escrever `ECU PROBE` + Enter, esperar por `ECUID END`, e correr de novo depois
+de uma volta à chave.
+
 ## Como ler o resultado
 
 ```

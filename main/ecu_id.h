@@ -25,7 +25,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define ECU_ID_REQ_MAX 4
+#define ECU_ID_REQ_MAX 7 /* longest single-frame probe request (ReadMemoryByAddress) */
 
 typedef enum {
     ECU_ID_FUNCTIONAL, /* 0x7DF on this bike */
@@ -49,8 +49,18 @@ typedef enum {
 
 typedef void (*ecu_id_line_fn)(const char *line, void *ctx);
 
-/* The probe, in the order it should run. */
+/* The identification probe (ECU ID), in the order it should run. */
 size_t ecu_id_steps(const ecu_id_step_t **steps);
+
+/* A deeper, still read-only probe (ECU PROBE), run after ECU ID once the ECU
+ * is known to speak UDS: re-reads the security seed to see whether it is
+ * fixed, and tries the read-only transfer services (ReadMemoryByAddress 23,
+ * RequestUpload 35) without ever sending a key. Every step is engine-off.
+ * No key (27 even), no programming session (10 02), no write (2E), no
+ * download (34, 36, 37), no routine (31), no reset (11): a fixed seed or a
+ * 23/35 that answers without security would mean the firmware can be dumped
+ * and reflashed. Run it again after a key cycle to confirm the seed. */
+size_t ecu_probe_steps(const ecu_id_step_t **steps);
 
 /* Short meaning of a negative response code, e.g. "serviceNotSupported". */
 const char *ecu_id_nrc_name(uint8_t nrc);

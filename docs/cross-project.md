@@ -26,8 +26,10 @@ is a Bosch, the plan is a reflash; if not, a piggyback injector controller.
   `obd_poller_request()` now calls it with the configured functional ID, so its behaviour
   is unchanged.
 - `main/main.c`:
-  - new command `ECU ID` (also `ECUID`), runs the probe and prints every line as `ECUID ...`
-    on the serial log and over BLE;
+  - new commands `ECU ID` (also `ECUID`) and `ECU PROBE` (`ECUPROBE`). `ECU ID` asks who the
+    ECU is; `ECU PROBE` re-reads the security seed and tries the read-only transfer services
+    (23 ReadMemoryByAddress, 35 RequestUpload) without a key. Both print every line as
+    `ECUID ...` on the serial log and over BLE;
   - commands can now be typed on the USB serial console (UART0 / CH343, 115200 baud), one
     per line; replies to those are printed on the console too. `ble_send_text()` mirrors
     to the console while a serial command runs; the old body is now `ble_notify_text()`.

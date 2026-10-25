@@ -64,6 +64,36 @@ static const ecu_id_step_t s_steps[] = {
     { P, true, 2, { 0x10, 0x01 }, "default session" },
 };
 
+/* Deeper read-only probe (ECU PROBE). All engine-off. */
+static const ecu_id_step_t s_probe_steps[] = {
+    { P, true, 2, { 0x10, 0x03 }, "extended session" },
+
+    /* Read the seed three times in one session: if it is always 56 78 it is
+     * fixed (and so is the key). Run this command again after a key cycle to
+     * confirm it does not change between sessions either. */
+    { P, true, 2, { 0x27, 0x01 }, "seed level 01 read 1" },
+    { P, true, 2, { 0x27, 0x01 }, "seed level 01 read 2" },
+    { P, true, 2, { 0x27, 0x01 }, "seed level 01 read 3" },
+
+    /* ReadMemoryByAddress (service 23). The second byte is the
+     * addressAndLengthFormatIdentifier: low nibble = address bytes, high
+     * nibble = size bytes. Try the common layouts, reading 16 bytes from
+     * address 0. NRC 33 = needs the key; 31 = wrong address but the service
+     * is open; 11 = not supported. 7 bytes max (single frame). */
+    { P, true, 5, { 0x23, 0x12, 0x00, 0x00, 0x10 }, "read mem 23 (2-byte addr)" },
+    { P, true, 7, { 0x23, 0x14, 0x00, 0x00, 0x00, 0x00, 0x10 }, "read mem 23 (4-byte addr)" },
+    { P, true, 6, { 0x23, 0x24, 0x00, 0x00, 0x00, 0x10 }, "read mem 23 (3-byte addr)" },
+
+    /* RequestUpload (service 35): asks the ECU to send memory out (read
+     * direction, no write). dataFormatIdentifier 00, then the same
+     * addressAndLengthFormatIdentifier, address and size. A positive 74
+     * reply means a dump is allowed without a key. */
+    { P, true, 6, { 0x35, 0x00, 0x11, 0x00, 0x00, 0x10 }, "request upload 35 (1-byte)" },
+    { P, true, 7, { 0x35, 0x00, 0x12, 0x00, 0x00, 0x00, 0x10 }, "request upload 35 (2-byte)" },
+
+    { P, true, 2, { 0x10, 0x01 }, "default session" },
+};
+
 #undef F
 #undef P
 
@@ -71,6 +101,12 @@ size_t ecu_id_steps(const ecu_id_step_t **steps)
 {
     *steps = s_steps;
     return sizeof(s_steps) / sizeof(s_steps[0]);
+}
+
+size_t ecu_probe_steps(const ecu_id_step_t **steps)
+{
+    *steps = s_probe_steps;
+    return sizeof(s_probe_steps) / sizeof(s_probe_steps[0]);
 }
 
 const char *ecu_id_nrc_name(uint8_t nrc)

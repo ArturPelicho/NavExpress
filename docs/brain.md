@@ -67,6 +67,10 @@ endpoint; measure the bike's own termination first.
   It checks whether the ECU (labelled New Means 85400-1614) is a Bosch
   MSE6.0 underneath. Procedure (in Portuguese):
   [docs/ecu-id-protocol.md](ecu-id-protocol.md).
+- ECU probe (`ECU PROBE`, same module): a deeper read-only probe run after
+  `ECU ID` — re-reads the security seed (to see whether it is fixed) and
+  tries the read-only transfer services (ReadMemoryByAddress `23`,
+  RequestUpload `35`) without ever sending a key.
 - Commands over the USB serial console: every BLE command (`SCAN`, `TRIP`,
   `DTC`, `ECU ID`...) can also be typed in the serial monitor at 115200 baud,
   one per line, and its reply is printed there (menuconfig **Serial
