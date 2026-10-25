@@ -42,6 +42,8 @@ is a Bosch, the plan is a reflash; if not, a piggyback injector controller.
 this. The session and seed steps only run with the engine stopped. Please keep it that
 way unless Artur asks otherwise from the ZS125 project.
 
-**Status.** Host tests pass and the firmware was built with ESP-IDF 6.0 before the pull
-request. Still to do: flash and run it on the bike; the results go to the ZS125GY-13-E55
-project.
+**Status.** Host tests pass and the firmware builds with ESP-IDF 6.0. Flashed and run on
+the bike on 2026-10-25 (the CH343 showed up as COM9 that day, not COM8): 39 of 42 steps
+answered. Serial commands work (`TRIP` replied on the console). The ECU reported calibration
+ID `I614_E05+`, supplier software version `8.72.6.0.0.6-100`, no Bosch identifiers, and a
+fixed seed `56 78` at security level 01. Analysis lives in the ZS125GY-13-E55 project.
