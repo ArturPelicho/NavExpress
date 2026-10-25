@@ -122,6 +122,14 @@ obd_req_status_t obd_poller_request(const uint8_t *request, uint8_t request_len,
                                     uint8_t *response, size_t response_size,
                                     size_t *response_len, uint32_t timeout_ms);
 
+/* Same, sent to request_id instead of the configured functional ID, e.g.
+ * 0x7E0 for UDS requests to the engine ECU's physical address. Replies are
+ * still taken from the configured response ID range. */
+obd_req_status_t obd_poller_request_to(uint32_t request_id, const uint8_t *request,
+                                       uint8_t request_len, uint8_t *response,
+                                       size_t response_size, size_t *response_len,
+                                       uint32_t timeout_ms);
+
 /* Whether the last support discovery says the ECU has this PID (true when
  * unknown). */
 bool obd_poller_pid_supported(uint8_t pid);

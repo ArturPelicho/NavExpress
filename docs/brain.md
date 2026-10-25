@@ -8,6 +8,8 @@ The first bike is a **ZongShen Carrera 125 Euro5+** (ZS125GY-13-E55). The code i
 modular on purpose: sensors, displays and even the MCU are expected to change, so each
 subsystem sits behind its own module and runs in its own non-blocking task across both cores.
 What is planned next is in the [roadmap](../ROADMAP.md#navexpress-brain-bike-unit).
+Changes made to it from Artur's other Claude projects are logged in
+[cross-project.md](cross-project.md).
 
 ## Hardware
 
@@ -57,6 +59,18 @@ endpoint; measure the bike's own termination first.
   printed every 30 s (`SCAN REPORT` for one now, `SCAN STOP` to end) while the
   dashboard keeps running. Step-by-step procedure (in Portuguese):
   [docs/pid-scan-protocol.md](pid-scan-protocol.md).
+- ECU identification probe (`main/ecu_id.c`): send `ECU ID` to ask the ECU
+  who it is: OBD Mode 09 (VIN, calibration ID, CVN, ECU name), UDS
+  `22 F1xx` and KWP2000 `1A xx` identifiers on the physical ID `0x7E0`, and,
+  with the engine stopped, which security levels hand out a seed in the
+  extended session. Read-only: no key, no programming session, no writes.
+  It checks whether the ECU (labelled New Means 85400-1614) is a Bosch
+  MSE6.0 underneath. Procedure (in Portuguese):
+  [docs/ecu-id-protocol.md](ecu-id-protocol.md).
+- Commands over the USB serial console: every BLE command (`SCAN`, `TRIP`,
+  `DTC`, `ECU ID`...) can also be typed in the serial monitor at 115200 baud,
+  one per line, and its reply is printed there (menuconfig **Serial
+  console**).
 
 **Dashboard (ST7789)**
 - RPM bar from 0 to 10500 with a flashing shift warning at 10000 and above.
@@ -171,6 +185,7 @@ gcc -std=c11 -Wall -I main test/host/test_gear_learner.c main/gear_learner.c -lm
 gcc -std=c11 -Wall -I main test/host/test_speed_source.c main/speed_source.c -o speed_test && ./speed_test
 gcc -std=c11 -Wall -I main test/host/test_tank.c main/tank.c -o tank_test && ./tank_test
 gcc -std=c11 -Wall -I main test/host/test_phone_proto.c main/phone_proto.c -lm -o proto_test && ./proto_test
+gcc -std=c11 -Wall -I main test/host/test_ecu_id.c main/ecu_id.c -o ecu_id_test && ./ecu_id_test
 ```
 
 The "Host tests" GitHub Actions workflow runs all of them on every push.
@@ -190,6 +205,7 @@ rebuilds the offline maps every month from fresh OpenStreetMap data.
 | `main/steady_cal.*` | Fuel model check from steady riding |
 | `main/bike_can.*` | Decoder for the ECU's `0x110` / `0x111` broadcast |
 | `main/pid_scan*` | PID discovery test |
+| `main/ecu_id.*` | ECU identification probe (Mode 09, UDS, KWP; read-only) |
 | `main/boot_diag.*` | Boot progress record (NVS + serial log) |
 | `main/speed_source.*` | Road speed sources and the fuel speed selection |
 | `main/gear_learner.*` | Gear ratio learning and gear tracking |

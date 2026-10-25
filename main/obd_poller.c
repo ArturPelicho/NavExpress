@@ -31,6 +31,7 @@ struct obd_event {
     uint8_t len;
     uint8_t data[8];
     uint32_t id;
+    uint32_t target; /* EVENT_RAW: CAN ID the request goes to */
 };
 
 struct query_result {
@@ -92,6 +93,7 @@ static QueueHandle_t s_raw_result;
 static bool s_pending_raw;
 static uint8_t s_raw_req[7];
 static uint8_t s_raw_req_len;
+static uint32_t s_raw_req_id;
 static uint8_t s_raw_seq;
 static bool s_busy_is_raw;
 static uint32_t s_raw_id; /* responding ECU, 0 until the first frame */
@@ -417,11 +419,11 @@ static bool send_raw(TickType_t now)
     uint8_t data[8] = { s_raw_req_len, PAD_BYTE, PAD_BYTE, PAD_BYTE,
                         PAD_BYTE, PAD_BYTE, PAD_BYTE, PAD_BYTE };
     memcpy(&data[1], s_raw_req, s_raw_req_len);
-    if (!s_cfg.send(s_cfg.request_id, s_cfg.extended_id, data, s_cfg.send_ctx)) {
+    if (!s_cfg.send(s_raw_req_id, s_cfg.extended_id, data, s_cfg.send_ctx)) {
         s_tx_retry_at = now + TX_RETRY_TICKS;
         return false;
     }
-    ESP_LOGD(TAG, "TX raw mode %02X", s_raw_req[0]);
+    ESP_LOGD(TAG, "TX raw %03" PRIX32 " mode %02X", s_raw_req_id, s_raw_req[0]);
     s_busy = true;
     s_busy_pid = 0;
     s_busy_entry = -1;
@@ -540,6 +542,7 @@ static void poller_task(void *arg)
             } else if (ev.type == EVENT_RAW) {
                 memcpy(s_raw_req, ev.data, ev.len);
                 s_raw_req_len = ev.len;
+                s_raw_req_id = ev.target;
                 s_raw_seq = (uint8_t)ev.id;
                 s_pending_raw = true;
             } else {
@@ -636,6 +639,15 @@ obd_req_status_t obd_poller_request(const uint8_t *request, uint8_t request_len,
                                     uint8_t *response, size_t response_size,
                                     size_t *response_len, uint32_t timeout_ms)
 {
+    return obd_poller_request_to(s_cfg.request_id, request, request_len, response, response_size,
+                                 response_len, timeout_ms);
+}
+
+obd_req_status_t obd_poller_request_to(uint32_t request_id, const uint8_t *request,
+                                       uint8_t request_len, uint8_t *response,
+                                       size_t response_size, size_t *response_len,
+                                       uint32_t timeout_ms)
+{
     *response_len = 0;
     if (s_events == NULL || request_len == 0 || request_len > 7) {
         return OBD_REQ_TIMEOUT;
@@ -650,7 +662,7 @@ obd_req_status_t obd_poller_request(const uint8_t *request, uint8_t request_len,
     ++seq;
 
     obd_req_status_t status = OBD_REQ_TIMEOUT;
-    struct obd_event ev = { .type = EVENT_RAW, .len = request_len, .id = seq };
+    struct obd_event ev = { .type = EVENT_RAW, .len = request_len, .id = seq, .target = request_id };
     memcpy(ev.data, request, request_len);
     if (xQueueSend(s_events, &ev, ticks_until(xTaskGetTickCount(), start + timeout)) == pdTRUE) {
         static struct raw_result result; /* only touched under s_query_lock */
