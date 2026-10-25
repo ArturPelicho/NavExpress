@@ -239,6 +239,19 @@ menu "PID scan (discovery test)"
 
 endmenu
 
+menu "Serial console"
+
+    config SERIAL_COMMANDS
+        bool "Accept commands on the USB serial console"
+        depends on ESP_CONSOLE_UART
+        default y
+        help
+            The commands normally sent over BLE (SCAN, TRIP, DTC, ECU ID...)
+            can also be typed in the serial monitor at 115200 baud, one per
+            line. Their replies are printed there too.
+
+endmenu
+
 menu "Boot screen"
 
     config DASH_SPLASH_HOLD_MS

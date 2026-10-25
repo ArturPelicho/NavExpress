@@ -24,6 +24,7 @@
 #include "esp_lcd_panel_vendor.h"
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
+#include "driver/uart.h"
 #include "fuel_estimator_config.h"
 #include "steady_cal.h"
 
@@ -36,6 +37,7 @@
 #include "services/gatt/ble_svc_gatt.h"
 
 #include "bike_can.h"
+#include "ecu_id.h"
 #include "obd_dtc.h"
 #include "obd_poller.h"
 #include "pid_scan_task.h"
@@ -2185,6 +2187,69 @@ static void elm_raw_mode(uint8_t mode)
     ble_send_text("\r\r>");
 }
 
+/* ECU identification probe (ecu_id.h): Mode 09, UDS and KWP identifiers,
+ * read-only. The session and seed steps only run with the engine stopped.
+ * Every line goes to the serial log and, when connected, over BLE. */
+#define ECU_ID_PHYSICAL_REQUEST_ID 0x7E0
+#define ECU_ID_TIMEOUT_MS 2500
+
+static void ble_notify_text(const char *text);
+
+static void ecu_id_line_out(const char *line, void *ctx)
+{
+    (void)ctx;
+    ESP_LOGI("ecu_id", "%s", line);
+    ble_notify_text(line);
+    ble_notify_text("\r");
+}
+
+static void ecu_id_run_steps(const ecu_id_step_t *steps, size_t count)
+{
+    bool engine_running = current_rpm() > 0.0f;
+    char line[96];
+    snprintf(line, sizeof(line), "ECUID START steps=%u physical=%03X engine=%s", (unsigned)count,
+             ECU_ID_PHYSICAL_REQUEST_ID, engine_running ? "running" : "stopped");
+    ecu_id_line_out(line, NULL);
+
+    static uint8_t reply[OBD_POLLER_RAW_MAX]; /* only the BLE command task runs this */
+    unsigned answered = 0;
+    for (size_t i = 0; i < count; ++i) {
+        const ecu_id_step_t *step = &steps[i];
+        size_t len = 0;
+        ecu_id_status_t status;
+        if (step->engine_off_only && engine_running) {
+            status = ECU_ID_SKIPPED;
+        } else {
+            uint32_t id = step->target == ECU_ID_PHYSICAL ? ECU_ID_PHYSICAL_REQUEST_ID
+                                                          : OBD_REQUEST_ID;
+            obd_req_status_t st = obd_poller_request_to(id, step->req, step->len, reply,
+                                                        sizeof(reply), &len, ECU_ID_TIMEOUT_MS);
+            status = st == OBD_REQ_OK         ? ECU_ID_OK
+                     : st == OBD_REQ_NEGATIVE ? ECU_ID_NEGATIVE
+                                              : ECU_ID_TIMEOUT;
+            if (status != ECU_ID_TIMEOUT) ++answered;
+        }
+        ecu_id_report(step, status, reply, len, ecu_id_line_out, NULL);
+    }
+    snprintf(line, sizeof(line), "ECUID END answered=%u of %u", answered, (unsigned)count);
+    ecu_id_line_out(line, NULL);
+    ble_notify_text(">");
+}
+
+static void ecu_id_run(void)
+{
+    const ecu_id_step_t *steps;
+    size_t count = ecu_id_steps(&steps);
+    ecu_id_run_steps(steps, count);
+}
+
+static void ecu_probe_run(void)
+{
+    const ecu_id_step_t *steps;
+    size_t count = ecu_probe_steps(&steps);
+    ecu_id_run_steps(steps, count);
+}
+
 static const ble_uuid16_t s_obd_service_uuid = BLE_UUID16_INIT(0xFFF0);
 static const ble_uuid16_t s_obd_notify_uuid = BLE_UUID16_INIT(0xFFF1);
 static const ble_uuid16_t s_obd_write_uuid = BLE_UUID16_INIT(0xFFF2);
@@ -2201,9 +2266,30 @@ static volatile bool s_mota_telemetry_on;
 
 struct ble_command {
     char text[BLE_COMMAND_LENGTH];
+    bool from_serial; /* typed on the USB serial console, not over BLE */
 };
 
+/* Set while a command typed on the serial console runs: its replies are
+ * printed there as well as sent over BLE. */
+static volatile bool s_reply_to_serial;
+
+static void serial_reply(const char *text)
+{
+    for (const char *c = text; *c != '\0'; ++c) {
+        putchar(*c == '\r' ? '\n' : *c);
+    }
+    fflush(stdout);
+}
+
+static void ble_notify_text(const char *text);
+
 static void ble_send_text(const char *text)
+{
+    if (s_reply_to_serial) serial_reply(text);
+    ble_notify_text(text);
+}
+
+static void ble_notify_text(const char *text)
 {
     if (s_ble_conn == BLE_HS_CONN_HANDLE_NONE || !s_ble_notify_ready ||
         (s_ble_notify_handle == 0 && s_ble_hm10_handle == 0)) {
@@ -2259,7 +2345,7 @@ static void process_elm_command(char *command)
         return;
     }
 
-    ESP_LOGI(TAG, "BLE command: %s", command);
+    ESP_LOGI(TAG, "%s command: %s", s_reply_to_serial ? "Serial" : "BLE", command);
     if (s_echo) {
         ble_send_text(command);
         ble_send_text("\r");
@@ -2386,6 +2472,10 @@ static void process_elm_command(char *command)
             ble_send_text(line);
         }
         ble_send_text(">");
+    } else if (!strcmp(command, "ECU ID") || !strcmp(command, "ECUID")) {
+        ecu_id_run();
+    } else if (!strcmp(command, "ECU PROBE") || !strcmp(command, "ECUPROBE")) {
+        ecu_probe_run();
     } else if (!strcmp(command, "DTC")) {
         dtc_report();
     } else if (!strcmp(command, "DTC CLEAR")) {
@@ -2416,16 +2506,18 @@ static void ble_command_task(void *arg)
     (void)arg;
     struct ble_command command;
     while (xQueueReceive(s_ble_command_queue, &command, portMAX_DELAY) == pdTRUE) {
+        s_reply_to_serial = command.from_serial;
         process_elm_command(command.text);
+        s_reply_to_serial = false;
     }
 }
 
-static bool queue_elm_command(const char *command)
+static bool queue_elm_command(const char *command, bool from_serial)
 {
     if (s_ble_command_queue == NULL || command[0] == '\0') {
         return false;
     }
-    struct ble_command queued = {0};
+    struct ble_command queued = { .from_serial = from_serial };
     strncpy(queued.text, command, sizeof(queued.text) - 1);
     return xQueueSend(s_ble_command_queue, &queued, 0) == pdTRUE;
 }
@@ -2436,11 +2528,46 @@ static void enqueue_command_buffer(void)
         return;
     }
     s_command_buffer[s_command_length] = '\0';
-    if (!queue_elm_command(s_command_buffer)) {
+    if (!queue_elm_command(s_command_buffer, false)) {
         ESP_LOGW(TAG, "BLE command queue full");
     }
     s_command_length = 0;
 }
+
+#if CONFIG_SERIAL_COMMANDS
+/* The same commands as over BLE, typed on the USB serial console (the
+ * CH343, COM8 on the dev PC) at 115200 baud, one per line. Replies are
+ * printed on the console as well. */
+static void serial_command_task(void *arg)
+{
+    (void)arg;
+    char line[BLE_COMMAND_LENGTH];
+    size_t len = 0;
+    while (true) {
+        uint8_t c;
+        if (uart_read_bytes(CONFIG_ESP_CONSOLE_UART_NUM, &c, 1, portMAX_DELAY) != 1) continue;
+        if (c == '\r' || c == '\n') {
+            if (len == 0) continue;
+            line[len] = '\0';
+            if (!queue_elm_command(line, true)) ESP_LOGW(TAG, "command queue full");
+            len = 0;
+        } else if (len < sizeof(line) - 1) {
+            line[len++] = (char)c;
+        }
+    }
+}
+
+static void serial_commands_start(void)
+{
+    esp_err_t err = uart_driver_install(CONFIG_ESP_CONSOLE_UART_NUM, 256, 0, 0, NULL, 0);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "serial commands off: UART driver install failed (%s)", esp_err_to_name(err));
+        return;
+    }
+    xTaskCreatePinnedToCore(serial_command_task, "serial_cmd", 3072, NULL, 3, NULL, 0);
+    ESP_LOGI(TAG, "Serial commands on: type e.g. ECU ID and press Enter");
+}
+#endif
 
 static bool command_is_complete_without_cr(void)
 {
@@ -3067,6 +3194,9 @@ void app_main(void)
     boot_diag_mark(BOOT_DIAG_STAGE_TASKS_STARTED);
 
     scan_init();
+#if CONFIG_SERIAL_COMMANDS
+    serial_commands_start();
+#endif
 
     ESP_LOGI(TAG, "Ready. Connect a BLE UART app and use ATMA for raw CAN streaming.");
 }
