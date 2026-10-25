@@ -49,3 +49,13 @@ the bike on 2026-10-25 (the CH343 showed up as COM9 that day, not COM8): 39 of 4
 answered. Serial commands work (`TRIP` replied on the console). The ECU reported calibration
 ID `I614_E05+`, supplier software version `8.72.6.0.0.6-100`, no Bosch identifiers, and a
 fixed seed `56 78` at security level 01. Analysis lives in the ZS125GY-13-E55 project.
+
+`ECU PROBE` was run twice the same day (plus three key-cycles earlier), all identical:
+`10 03` extended session OK (`50 03 00 32 01 F4`); the security seed `27 01` is constant
+`56 78` across reads, runs and key-cycles; `23` ReadMemoryByAddress exists and, with a
+4-byte-address request, answers NRC 33 securityAccessDenied (service accepted, only gated by
+security access — the 2/3-byte requests were malformed on our side, NRC 13); `35`
+RequestUpload is NRC 11 serviceNotSupported. So the flash is readable over service `23` once
+the key for the fixed seed is known. One serial note for whoever runs the probe from a host
+script: open the port with DTR/RTS deasserted, otherwise the CH343 holds the ESP32 in reset
+and nothing answers (`idf.py monitor` already does this).
